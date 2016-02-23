@@ -4,9 +4,12 @@
  */
 package edu.stanford.rsl.conrad.geometry.splines.fitting;
 
+import ij.gui.Plot;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 
+import omero.IllegalArgumentException;
 import edu.stanford.rsl.conrad.geometry.shapes.simple.PointND;
 import edu.stanford.rsl.conrad.geometry.splines.BSpline;
 import edu.stanford.rsl.conrad.numerics.SimpleMatrix;
@@ -49,7 +52,7 @@ public class BSplineCurveInterpolation {
 	}
 	
 	/**
-	 * Fit the given data points to a BSline curve of the degree given in the Constructor
+	 * Fit the given data points to a BSpline curve of the degree given in the Constructor
 	 * User can choose different parameterization methods and endpoint conditions to form the BSpline curve
 	 * @param parametrization three parameterization options : uniform, chord length and centripetal, see the predefined constants of the three types
 	 * @param endpointCondition three endpoint Conditions: clamped(clamped knots), open(open knots), closed(closed curve with open knots)
@@ -57,11 +60,11 @@ public class BSplineCurveInterpolation {
 	 */
 	public BSpline applyInterpolation(int parametrization, int endpointCondition){
 		//compute the parameter value
-		double[] parameters = buildParameterVector(parametrization, endpointCondition);
+		buildParameterVector(parametrization, endpointCondition);
 		//compute the knot vector
-		double[] knots = buildKnotVector(parameters, endpointCondition);	
+		double[] knots = buildKnotVector(endpointCondition);	
 		// set up the linear equation system
-		SimpleMatrix A = buildCoefficientMatrix(knots, parameters, endpointCondition);		
+		SimpleMatrix A = buildCoefficientMatrix(knots, endpointCondition);		
 		SimpleVector[] b = buildDataVector(knots);	
 		// solve for control points
 		ArrayList<PointND> controlPoints = solveLinearEquations(A, b, endpointCondition);	
@@ -76,22 +79,23 @@ public class BSplineCurveInterpolation {
 	 * @return the fitted BSpline curve
 	 */
 	public BSpline applyInterpolation(double[] parameters, double[] knots,  int endpointCondition){
-		SimpleMatrix A = buildCoefficientMatrix(knots, parameters, endpointCondition);
+		this.parameters = parameters;
+		SimpleMatrix A = buildCoefficientMatrix(knots, endpointCondition);
 		SimpleVector[] b = buildDataVector(knots);	
 		ArrayList<PointND> controlPoints = solveLinearEquations(A, b, endpointCondition);
 		return new BSpline(controlPoints, degree, knots);			
 	}
 	
-	protected double[] buildParameterVector(int parametrization, int endpointCondition){	
+	private void buildParameterVector(int parametrization, int endpointCondition){	
 		parameters = new double[n];
 		//closed curve
-		if(endpointCondition == 2){
+		if(endpointCondition == CLOSED){
 			//very special case, the parameter corresponds to the first data point are both 0 and 1
 			//So actually we have n+1 parameter, but we only take the first n for solving the linear equations
-			if (parametrization == 0){
+			if (parametrization == UNIFORM){
 				for (int i = 1; i < n - 1; i++)
 					parameters[i] = (double)i / n;
-			} else if (parametrization == 1){
+			} else if (parametrization == CHORD){
 				for (int i = 1; i < n; i++){
 					double dis = dataPoints.get(i).euclideanDistance(dataPoints.get(i - 1));
 					parameters[i] = parameters[i - 1] + dis;
@@ -99,7 +103,7 @@ public class BSplineCurveInterpolation {
 				double total = parameters[n - 1] + dataPoints.get(0).euclideanDistance(dataPoints.get(n - 1));
 				for(int i = 1; i < n; i++)
 					parameters[i] /= total;
-			} else if (parametrization == 2){
+			} else if (parametrization == CENTRIPETAL){
 				for (int i = 1; i < n; i++){
 					double dis = dataPoints.get(i).euclideanDistance(dataPoints.get(i - 1));
 					parameters[i] = parameters[i - 1] + Math.sqrt(dis);
@@ -107,35 +111,40 @@ public class BSplineCurveInterpolation {
 				double total = parameters[n - 1] + dataPoints.get(0).euclideanDistance(dataPoints.get(n - 1));
 				for (int i = 1; i < n; i++)
 					parameters[i] /= total;			
+			} else {
+				throw new IllegalArgumentException(this.getClass().getName() + ": Invalid parametrization " + parametrization);	
 			}
-		} else {
+		} else if (endpointCondition == OPEN || endpointCondition == CLAMPED){
 			//same for open and clamped knots
 			//equally spaced
-			if (parametrization == 0){
+			if (parametrization == UNIFORM){
 				for (int i = 1; i < n - 1; i++)
 					parameters[i] = (double)i / (n - 1);
-			} else if (parametrization == 1) {
+			} else if (parametrization == CHORD) {
 				for (int i = 1; i < n; i++) {
 					double dis = dataPoints.get(i).euclideanDistance(dataPoints.get(i - 1));
 					parameters[i] = parameters[i - 1] + dis;
 				}
 				for (int i = 1; i < n - 1; i++)
 					parameters[i] /= parameters[n - 1];
-			} else if (parametrization == 2) {
+			} else if (parametrization == CENTRIPETAL) {
 				for (int i = 1; i < n; i++) {
 					double dis = dataPoints.get(i).euclideanDistance(dataPoints.get(i - 1));
 					parameters[i] = parameters[i - 1] + Math.sqrt(dis);
 				}
 				for (int i = 1; i < n - 1; i++)
 					parameters[i] /= parameters[n - 1];			
+			} else {
+				throw new IllegalArgumentException(this.getClass().getName() + ": Invalid parametrization " + parametrization);		
 			}
 			parameters[n - 1] = 1d; 
+		} else {
+			throw new IllegalArgumentException(this.getClass().getName() + ": Invalid endpoint condition " + endpointCondition);
 		}
-		return parameters;
 	}
 	
-	protected double[] buildKnotVector(double[] parameters, int endpointCondition){	
-		if (endpointCondition == 1) {
+	private double[] buildKnotVector(int endpointCondition){	
+		if (endpointCondition == OPEN) {
 			//averaging over the neighboring parameters in the middle while make two ends open
 			int k = n + degree + 1; //number of knots
 			double[] uKnots = new double[k];
@@ -151,14 +160,14 @@ public class BSplineCurveInterpolation {
 				uKnots[n + i + 1] = uKnots[n + i] + (uKnots[degree + i + 1] - uKnots[degree + i]);						
 			}
 			return uKnots;
-		} else if (endpointCondition == 2) {
-			//For simplicity we use uniform knots here, may cause singularity in the coefficient matrix
+		} else if (endpointCondition == CLOSED) {
+			//For simplicity we use uniform knots here. May cause singularity in the coefficient matrix
 			int k = n + degree * 2 + 1; //number of knots
 			double[] knots = new double[k];
 			for (int j = 0; j < k; j++)
 				knots[j] = ((double)(j - degree)) / n;
 			return knots;
-		} else {
+		} else if(endpointCondition == CLAMPED){
 			//averaging over the neighboring parameters in the middle while make both ends clamped
 			int k = n + degree + 1; //number of knots
 			double[] uKnots = new double[k];
@@ -174,10 +183,12 @@ public class BSplineCurveInterpolation {
 				uKnots[j + degree] =  sum / degree;
 			}
 			return uKnots;		
+		} else {
+			throw new IllegalArgumentException(this.getClass().getName() + ": Invalid endpoint condition " + endpointCondition);
 		}
 	}
 
-	protected SimpleMatrix buildCoefficientMatrix(double[] knots, double[] parameters, int endpointCondition ){
+	private SimpleMatrix buildCoefficientMatrix(double[] knots, int endpointCondition ){
 		if(endpointCondition == 2){
 			double[][] A = new double[n][n];
 			for (int i = 0; i < n; i ++){
@@ -264,24 +275,50 @@ public class BSplineCurveInterpolation {
 		
 		//create a list of data points
 		ArrayList<PointND> list = new ArrayList<PointND>();
-		list.add(new PointND (-2, 5));
-		list.add(new PointND (-5, 0));
-		list.add(new PointND (-1, -3));
-		list.add(new PointND (2, -3));
-		list.add(new PointND (5, 2));
-		list.add(new PointND (1, 3));
+		
+		ArrayList<Double> xValues = new ArrayList<Double>();
+		xValues.add(-2.0);
+		xValues.add(-5.0);
+		xValues.add(-1.0);
+		xValues.add(2.0);
+		xValues.add(5.0);
+		xValues.add(1.0);
+		
+		ArrayList<Double> yValues = new ArrayList<Double>();
+		yValues.add(5.0);
+		yValues.add(0.0);
+		yValues.add(-3.0);
+		yValues.add(-3.0);
+		yValues.add(2.0);
+		yValues.add(3.0);
+		
+		for(int i = 0; i < xValues.size(); ++i){
+			list.add(new PointND(xValues.get(i), yValues.get(i)));
+		}
+		
 		
 		//B-Spline curve interpolation
 		int degree = 3;
 		BSplineCurveInterpolation test = new BSplineCurveInterpolation(list, degree);
-		BSpline spline_clamped = test.applyInterpolation(UNIFORM, CLAMPED);
+		BSpline spline_clamped = test.applyInterpolation(CHORD, CLAMPED);
 		BSpline spline_open = test.applyInterpolation(CHORD, OPEN);
 		BSpline spline_closed = test.applyInterpolation(CHORD, CLOSED);
 	    
 		//Visualization
-		VisualizationUtil.createSplinePlot(spline_clamped).show();
-		VisualizationUtil.createSplinePlot(spline_open).show();
-		VisualizationUtil.createSplinePlot(spline_closed).show();
+		Plot plt_clamped = VisualizationUtil.createSplinePlot("clamped", spline_clamped);
+		plt_clamped.addPoints(xValues, yValues, Plot.X);
+		plt_clamped.show();
+		plt_clamped.setLimitsToFit(true);
+		
+		Plot plt_open = VisualizationUtil.createSplinePlot("open", spline_open);
+		plt_open.addPoints(xValues, yValues, Plot.X);
+		plt_open.show();
+		plt_open.setLimitsToFit(true);
+		
+		Plot plt_closed = VisualizationUtil.createSplinePlot("closed", spline_closed);
+		plt_closed.addPoints(xValues, yValues, Plot.X);
+		plt_closed.show();
+		plt_closed.setLimitsToFit(true);
 	}
 
 }

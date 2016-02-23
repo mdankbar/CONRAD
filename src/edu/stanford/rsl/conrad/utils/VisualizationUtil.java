@@ -43,16 +43,25 @@ public abstract class VisualizationUtil {
 	}
 	
 	public static Plot createSplinePlot(BSpline spline){
-		int length = 100;
-		double [] x = new double[length];
-		double [] y = new double[length];
-		for (int i = 0; i< length; i++){
-			PointND p = spline.evaluate(((double) i) / (length));
+		return createSplinePlot("Spline Plot", spline);
+	}
+	
+	public static Plot createSplinePlot(String title, BSpline spline){
+		int numberOfSamplingPoints = 100;
+		double [] x = new double[numberOfSamplingPoints];
+		double [] y = new double[numberOfSamplingPoints];
+		double [] knots = spline.getKnots();
+		double tStart = knots[spline.getDegree() - 1];
+		double tEnd = knots[knots.length - spline.getDegree()];
+		double interval = tEnd - tStart;
+		for (int i = 0; i < numberOfSamplingPoints; i++){
+			double t = tStart + ((double) i) * interval / (numberOfSamplingPoints - 1);
+			PointND p = spline.evaluate(t);
 			x[i] = p.get(0);
 			y[i] = p.get(1);
 		}
 		
-		return new Plot("Spline Plot", "x", "y", x, y);
+		return new Plot(title, "x", "y", x, y);
 	}
 	
 	public static Plot createPlot(double [] yValues, String title, String xLabel, String yLabel){
